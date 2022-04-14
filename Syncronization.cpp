@@ -35,6 +35,10 @@ void CreateThreadsCriticalSection() {
 		ResumeThread(handle);
 
 	WaitForMultipleObjects(handles.size(), handles.data(), TRUE, INFINITE);
+
+	for (const auto& handle : handles)
+		CloseHandle(handle);
+
 	DeleteCriticalSection(&section);
 }
 //_________________________________________________________________________________________________________
@@ -69,6 +73,9 @@ void CreateThreadsMutex() {
 		ResumeThread(handle);
 
 	WaitForMultipleObjects(handles.size(), handles.data(), TRUE, INFINITE);
+
+	for (const auto& handle : handles)
+		CloseHandle(handle);
 }
 //_________________________________________________________________________________________________________
 //_________________________________________________________________________________________________________
@@ -112,6 +119,9 @@ void CreateThreadsMutexWinAPI() {
 
 	WaitForMultipleObjects(handles.size(), handles.data(), TRUE, INFINITE);
 
+	for (const auto& handle : handles)
+		CloseHandle(handle);
+
 	CloseHandle(mutex);
 }
 //_________________________________________________________________________________________________________
@@ -143,6 +153,7 @@ void CreateThreadsEvent() {
 
 	WaitForSingleObject(threadHandle, INFINITE);
 
+	CloseHandle(threadHandle);
 	CloseHandle(hEvent);
 }
 //_________________________________________________________________________________________________________
@@ -191,6 +202,9 @@ void CreateThreadsSemaphore() {
 
 	WaitForMultipleObjects(handles.size(), handles.data(), TRUE, INFINITE);
 
+	for (const auto& handle : handles)
+		CloseHandle(handle);
+
 	CloseHandle(semaphore);
 }
 //_________________________________________________________________________________________________________
@@ -198,38 +212,80 @@ void CreateThreadsSemaphore() {
 
 // WaitableTimer and APC-queue
 VOID APIENTRY TimerApcRoutine(PVOID, DWORD TimerLowValue, DWORD TimerHighValue) {
-	static int i = 0;
 
-	std::cout << ++i << std::endl;
+	std::cout << "Timer low value: " << TimerLowValue << std::endl;
+	std::cout << "Timer high value: " << TimerHighValue << std::endl;
+	std::cout << std::endl;
 }
 
-void CreateThreadWaitableTimer() {
+void CreateWaitableTimerWithAPC() {
 	// create  WaitableTimer with autodump
 	auto timer = CreateWaitableTimer(nullptr, FALSE, nullptr);
-
-	// create threads with wait state
-	auto handle = reinterpret_cast<HANDLE>(_beginthreadex(nullptr, 0, ThreadFunctionSemaphore
-		, timer, CREATE_SUSPENDED, nullptr));
 
 	LARGE_INTEGER startTime;
 	constexpr int timerUnitsPerSecond = 10000000;
 
 	// timer will state signaled after 5 seconds after SetWaitableTimer
-	startTime.QuadPart = -(5 * timerUnitsPerSecond);
-
-	// start thread
-	ResumeThread(handle);
+	startTime.QuadPart = -(2 * timerUnitsPerSecond);
 
 	// set timer with period of signaled state is 1 second
 	SetWaitableTimer(timer, &startTime, 1000, TimerApcRoutine, nullptr, FALSE);
 
-	Sleep(40000);
-	SleepEx(INFINITE, TRUE);
+	auto k = 0;
+	while (k < 10) {
+		SleepEx(INFINITE, TRUE);
+		++k;
+	}
+
+	CancelWaitableTimer(timer);
 
 	CloseHandle(timer);
 }
 //_________________________________________________________________________________________________________
 //_________________________________________________________________________________________________________
+
+// SRWLock (Slim Read-Write lock)
+unsigned WINAPI ThreadFunctionSRWLock(LPVOID lParam) {
+	auto srwLock = reinterpret_cast<SRWLOCK*>(lParam);
+
+	for (int i = 0; i < 10; ++i) {
+		//AcquireSRWLockExclusive(srwLock);
+		AcquireSRWLockShared(srwLock);
+
+		std::cout << i << std::endl;
+
+		ReleaseSRWLockShared(srwLock);
+		//ReleaseSRWLockExclusive(srwLock);
+	}
+
+	return 0;
+}
+
+void CreateThreadsSRWLock() {
+	SRWLOCK lock;
+
+	InitializeSRWLock(&lock);
+
+	std::vector<HANDLE> handles;
+
+	// create threads with wait state
+	handles.emplace_back(reinterpret_cast<HANDLE>(_beginthreadex(nullptr, 0, ThreadFunctionSRWLock
+		, reinterpret_cast<LPVOID>(&lock), CREATE_SUSPENDED, nullptr)));
+	handles.emplace_back(reinterpret_cast<HANDLE>(_beginthreadex(nullptr, 0, ThreadFunctionSRWLock
+		, reinterpret_cast<LPVOID>(&lock), CREATE_SUSPENDED, nullptr)));
+
+	// start threads
+	for (const auto& handle : handles)
+		ResumeThread(handle);
+
+	WaitForMultipleObjects(handles.size(), handles.data(), TRUE, INFINITE);
+
+	for (const auto& handle : handles)
+		CloseHandle(handle);
+}
+//_________________________________________________________________________________________________________
+//_________________________________________________________________________________________________________
+
 int main() {
 	//CreateThreadsCriticalSection();
 
@@ -241,6 +297,8 @@ int main() {
 
 	//CreateThreadsSemaphore();
 
-	CreateThreadWaitableTimer();
+	//CreateWaitableTimerWithAPC();
+
+	CreateThreadsSRWLock();
 }
 
